@@ -327,34 +327,22 @@ class CorefModel(object):
       oov_counts = [0 for _ in self.embedding_dicts]
       with open(self.config["eval_path"]) as f:
         self.eval_data = map(lambda example: (self.tensorize_example(example, is_training=False, oov_counts=oov_counts), example), (json.loads(jsonline) for jsonline in f.readlines()))
-      num_words = sum(tensorized_example[2].sum() for tensorized_example, _ in self.eval_data)
-      for emb, c in zip(self.config["embeddings"], oov_counts):
-        print("OOV rate for {}: {:.2f}%".format(emb["path"], (100.0 * c) / num_words))
-      print("Loaded {} eval examples.".format(len(self.eval_data)))
+      # num_words = sum(tensorized_example[2].sum() for tensorized_example, _ in self.eval_data)
+      # for emb, c in zip(self.config["embeddings"], oov_counts):
+      #   print("OOV rate for {}: {:.2f}%".format(emb["path"], (100.0 * c) / num_words))
+      # print("Loaded {} eval examples.".format(len(self.eval_data)))
 
   def evaluate(self, session, official_stdout=False):
     self.load_eval_data()
-
-    def _k_to_tag(k):
-      if k == -3:
-        return "oracle"
-      elif k == -2:
-        return "actual"
-      elif k == -1:
-        return "exact"
-      elif k == 0:
-        return "threshold"
-      else:
-        return "{}%".format(k)
-    mention_evaluators = { k:util.RetrievalEvaluator() for k in [-3, -2, -1, 0, 10, 15, 20, 25, 30, 40, 50] }
 
     coref_predictions = {}
     coref_evaluator = metrics.CorefEvaluator()
 
     for example_num, (tensorized_example, example) in enumerate(self.eval_data):
-      _, _, _, _, _, _, gold_starts, gold_ends, _ = tensorized_example
+      ques_emb, trans_emb, label, is_training = tensorized_example
+
       feed_dict = {i:t for i,t in zip(self.input_tensors, tensorized_example)}
-      candidate_starts, candidate_ends, mention_scores, mention_starts, mention_ends, antecedents, antecedent_scores = session.run(self.predictions, feed_dict=feed_dict)
+      score = session.run(self.predictions, feed_dict=feed_dict)
 
       self.evaluate_mentions(candidate_starts, candidate_ends, mention_starts, mention_ends, mention_scores, gold_starts, gold_ends, example, mention_evaluators)
       predicted_antecedents = self.get_predicted_antecedents(antecedents, antecedent_scores)

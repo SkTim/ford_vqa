@@ -92,17 +92,67 @@ def negative_sampling(v_ids, q_ids, num_samples):
 
 def process_data(input_file, output_file, num_samples):
     v_ids, q_ids, scripts, questions = read_csv(input_file)
-    print len(q_ids)
     scripts = [process_script(x) for x in scripts]
     questions = [process_question(x) for x in questions]
     q_dict = {x: y for x, y in zip(q_ids, questions)}
     v_dict = {x: y for x, y in zip(v_ids, scripts)}
     v_ids, q_ids, labels = negative_sampling(v_ids, q_ids, num_samples)
-    print len(v_ids)
     scripts = [v_dict[x] for x in v_ids]
     questions = [q_dict[x] for x in q_ids]
     samples = [{'question': x, 'script': y, 'label': z} for x, y, z in zip(questions, scripts, labels)]
-    print len(samples)
+    out_handle = open('%s.jsonlines' % output_file, 'w')
+    for sample in samples:
+        out_handle.write(json.dumps(sample))
+        out_handle.write('\n')
+    out_handle.close()
+
+def all_pairs(vq_dict, v_ids, q_ids):
+    qv_dict = {}
+    v_set = set(v_ids)
+    for v, qs in vq_dict.items():
+        for q in qs:
+            qv_dict[q] = v
+    new_v = []
+    new_q = []
+    labels = []
+    for q in q_ids:
+        for v in v_set:
+            new_q.append(q)
+            new_v.append(v)
+            if v == qv_dict[q]:
+                labels.append(1)
+            else:
+                labels.append(0)
+    return new_v, new_q, labels
+
+def process_test(input_file, output_file, num_samples):
+    v_ids, q_ids, scripts, questions = read_csv(input_file)
+
+    scripts = [process_script(x) for x in scripts]
+    questions = [process_question(x) for x in questions]
+    q_dict = {x: y for x, y in zip(q_ids, questions)}
+    v_dict = {x: y for x, y in zip(v_ids, scripts)}
+
+    vq_dict = {}
+    for v, q in zip(v_ids, q_ids):
+        if v not in vq_dict:
+            vq_dict[v] = [q]
+        else:
+            vq_dict[v].append(q)
+    for v, qs in vq_dict.items():
+        vq_dict[v] = qs[:min(len(qs), 5)]
+    v_ids = []
+    q_ids = []
+    for v, qs in vq_dict.items():
+        for q in qs:
+            v_ids.append(v)
+            q_ids.append(q)
+
+    v_ids, q_ids, labels = all_pairs(vq_dict, v_ids, q_ids)
+
+    scripts = [v_dict[x] for x in v_ids]
+    questions = [q_dict[x] for x in q_ids]
+    samples = [{'question': x, 'script': y, 'label': z} for x, y, z in zip(questions, scripts, labels)]
     out_handle = open('%s.jsonlines' % output_file, 'w')
     for sample in samples:
         out_handle.write(json.dumps(sample))
@@ -110,4 +160,7 @@ def process_data(input_file, output_file, num_samples):
     out_handle.close()
 
 if __name__ == '__main__':
-    process_data('data/%s.csv' % sys.argv[1], sys.argv[1], 1)
+    if sys.argv[1] == 'train' or sys.argv[1] == 'dev':
+        process_data('data/%s.csv' % sys.argv[1], sys.argv[1], 1)
+    else:
+        process_test('data/%s.csv' % sys.argv[1], sys.argv[1], 1)
