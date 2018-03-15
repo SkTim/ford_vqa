@@ -145,8 +145,8 @@ class CorefModel(object):
     num_sentences = tf.shape(ques_emb)[0]
     # max_sentence_length = tf.shape(ques_emb)[1]
 
-    ques_len = tf.shape(ques_emb)[1]
-    trans_len = tf.shape(trans_emb)[1]
+    ques_len = tf.reshape(tf.shape(ques_emb)[1], [1])
+    trans_len = tf.reshape(tf.shape(trans_emb)[1], [1])
 
     # text_emb_list = [word_emb]
 
