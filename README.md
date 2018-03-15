@@ -2,16 +2,20 @@
 
 ## Training
 
-Run ./setup_training.sh and it will download and pretrained word embeddings.
+Run `./setup_training.sh` and it will download and pretrained word embeddings.
 
-Run python singleton.py EXP_NAME for training. EXP_NAME should be defined in experiments.conf.
+Run `python singleton.py EXP_NAME` for training. EXP_NAME should be defined in experiments.conf.
 
-Example: python singleton.py best.
+Example: `python singleton.py best`.
 
 ## Evaluating
 
-Run ./copy_exp.sh EXP_NAME ITER_NUM. For example: ./copy_exp.sh best 10000.
+Run `./copy_exp.sh EXP_NAME ITER_NUM`.
 
-Run python test_single.py EXP_NAME. For example: python test_single.py best.
+For example: `./copy_exp.sh best 10000`.
 
-To get final scores, run python eval.py or python evaluate.py test. Both works.
+Run `python test_single.py EXP_NAME`.
+
+For example: `python test_single.py best`.
+
+To get final scores, run `python eval.py` or `python evaluate.py test`. Both works.
