@@ -1,3 +1,4 @@
+logs/*
 *.filtered
 *.txt
 

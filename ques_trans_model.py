@@ -72,7 +72,7 @@ class CorefModel(object):
     return np.array(starts), np.array(ends)
 
   def tensorize_example(self, example, is_training, oov_counts=None):
-    label = example['label']
+    label = np.array([example['label']])
     question = example['question'].split(' ')
     trans = example['script'].split(' ')
 
@@ -107,7 +107,7 @@ class CorefModel(object):
           current_word = word
         if oov_counts is not None and current_word not in d:
           oov_counts[k] += 1
-        ques_emb[i, j, current_dim:current_dim + s] = util.normalize(d[current_word])
+        ques_emb[0, j, current_dim:current_dim + s] = util.normalize(d[current_word])
         current_dim += s
       # char_index[i, j, :len(word)] = [self.char_dict[c] for c in word]
     
@@ -120,7 +120,7 @@ class CorefModel(object):
           current_word = word
         if oov_counts is not None and current_word not in d:
           oov_counts[k] += 1
-        trans_emb[i, j, current_dim:current_dim + s] = util.normalize(d[current_word])
+        trans_emb[0, j, current_dim:current_dim + s] = util.normalize(d[current_word])
         current_dim += s
       # char_index[i, j, :len(word)] = [self.char_dict[c] for c in word]
 
@@ -145,8 +145,11 @@ class CorefModel(object):
     num_sentences = tf.shape(ques_emb)[0]
     # max_sentence_length = tf.shape(ques_emb)[1]
 
-    ques_len = tf.reshape(tf.shape(ques_emb)[1], [1])
-    trans_len = tf.reshape(tf.shape(trans_emb)[1], [1])
+    ques_len = tf.shape(ques_emb)[1]
+    trans_len = tf.shape(trans_emb)[1]
+
+    ques_len_lstm = tf.reshape(ques_len, [1])
+    trans_len_lstm = tf.reshape(trans_len, [1])
 
     # text_emb_list = [word_emb]
 
@@ -167,13 +170,15 @@ class CorefModel(object):
     trans_len_mask = tf.sequence_mask(trans_len, maxlen=trans_len)
     trans_len_mask = tf.reshape(trans_len_mask, [num_sentences * trans_len])
 
-    ques_outputs = self.encode_sentences(ques_emb, ques_len, ques_len_mask)
-    ques_outputs = tf.nn.dropout(ques_outputs, self.dropout)
+    with tf.variable_scope("question_lstm"):
+      ques_outputs = self.encode_sentences(ques_emb, ques_len_lstm, ques_len_mask)
+      ques_outputs = tf.nn.dropout(ques_outputs, self.dropout)
 
-    trans_outputs = self.encode_sentences(trans_emb, trans_len, trans_len_mask)
-    trans_outputs = tf.nn.dropout(trans_outputs, self.dropout)
+    with tf.variable_scope("transcript_lstm"):
+      trans_outputs = self.encode_sentences(trans_emb, trans_len_lstm, trans_len_mask)
+      trans_outputs = tf.nn.dropout(trans_outputs, self.dropout)
 
-    ques_lstm_emb = tf.gather(tf.squeeze(ques_outputs, 0), ques_len - 1)
+    ques_lstm_emb = tf.gather(tf.squeeze(ques_outputs, 0), [ques_len - 1])
     trans_lstm_emb = tf.squeeze(trans_outputs, 0)
 
     ques_tiled = tf.tile(ques_lstm_emb, [trans_len, 1])
@@ -183,7 +188,7 @@ class CorefModel(object):
       att_logits = util.ffnn(att_emb, 1, 150, 1, self.dropout)
     
     context_att = tf.nn.softmax(att_logits, dim=1)
-    hist_emb = tf.reduce_sum(context_att * trans_lstm_emb, 1)
+    hist_emb = tf.reduce_sum(context_att * trans_lstm_emb, 0, keepdims=True)
 
     pair_emb = tf.concat([ques_lstm_emb, hist_emb], 1)
 
@@ -191,7 +196,7 @@ class CorefModel(object):
 
     score = tf.reshape(tf.nn.sigmoid(logits), [])
 
-    loss = tf.cond(label, lambda: 1 - score, lambda: score)
+    loss = tf.cond(tf.cast(tf.reshape(label, []), tf.bool), lambda: 1 - score, lambda: score)
     return score, loss
 
   def softmax_loss(self, antecedent_scores, antecedent_labels):
@@ -239,8 +244,8 @@ class CorefModel(object):
                                      batch_dim=1)
 
     text_outputs = tf.concat([fw_outputs, bw_outputs], 2)
-    text_outputs = tf.transpose(text_outputs, [1, 0, 2]) # [num_sentences, max_sentence_length, emb]
-    return self.flatten_emb_by_sentence(text_outputs, text_len_mask)
+    return tf.transpose(text_outputs, [1, 0, 2]) # [num_sentences, max_sentence_length, emb]
+    # return self.flatten_emb_by_sentence(text_outputs, text_len_mask)
 
   def evaluate_mentions(self, candidate_starts, candidate_ends, mention_starts, mention_ends, mention_scores, gold_starts, gold_ends, example, evaluators):
     text_length = sum(len(s) for s in example["sentences"])
