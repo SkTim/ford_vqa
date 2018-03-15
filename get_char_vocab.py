@@ -8,9 +8,10 @@ def get_char_vocab(input_filenames, output_filename):
   for filename in input_filenames:
     with open(filename) as f:
       for line in f.readlines():
-        for sentence in json.loads(line)["sentences"]:
-          for word in sentence:
-            vocab.update(word)
+        for word in json.loads(line)["question"].split(' '):
+          vocab.update(word)
+        for word in json.loads(line)["script"].split(' '):
+          vocab.update(word)
   vocab = sorted(list(vocab))
   with open(output_filename, "w") as f:
     for char in vocab:
