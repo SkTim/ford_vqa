@@ -11,8 +11,10 @@ if __name__ == "__main__":
     for json_filename in sys.argv[2:]:
         with open(json_filename) as json_file:
             for line in json_file.readlines():
-                for sentence in json.loads(line)["sentences"]:
-                    words_to_keep.update(sentence)
+                example = json.loads(line)
+                # for sentence in json.loads(line)["sentences"]:
+                words_to_keep.update(example['question'].split(' '))
+                words_to_keep.update(example['script'].split(' '))
 
     print "Found {} words in {} dataset(s).".format(len(words_to_keep), len(sys.argv) - 2)
 
