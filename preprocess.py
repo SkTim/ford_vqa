@@ -5,35 +5,14 @@ import json
 import random
 from nltk import word_tokenize
 
-"""WEBVTT
-Kind: captions
-Language: en
-00:00:00.000 --> 00:00:03.421
-[MUSIC]
-00:00:03.421 --> 00:00:07.043
-Your vehicle may have an available feature
-that can help keep your distance from
-00:00:07.043 --> 00:00:10.230
-the car in front of you when
-you use cruise control.
-00:00:10.230 --> 00:00:14.120
-It functions just like normal cruise
-control, with a few exceptions.
-00:00:14.120 --> 00:00:15.650
-Let me tell you about it."""
-
 def select_str(line):
     stop_words = set(["WEBVTT", "Kind: captions", "Language: en"])
-    # print line
     if len(line) == 0:
         return False
     if line in stop_words:
-        # print 'stop owrd'
         return False
     if not line[0].isalpha():
-        # print 'not english'
         return False
-    # print 'valid'
     return True
 
 def process_script(s):
