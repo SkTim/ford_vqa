@@ -7,8 +7,8 @@ import numpy as np
 import tensorflow as tf
 
 import util
-import coref_ops
-import conll
+# import coref_ops
+# import conll
 import metrics
 
 class CorefModel(object):
