@@ -152,7 +152,7 @@ def process_test(input_file, output_file, num_samples):
 
     scripts = [v_dict[x] for x in v_ids]
     questions = [q_dict[x] for x in q_ids]
-    samples = [{'question': x, 'script': y, 'label': z} for x, y, z in zip(questions, scripts, labels)]
+    samples = [{'question': x, 'script': y, 'label': z, 'v_id': v_id, 'q_id': q_id} for x, y, z, v_id, q_id in zip(questions, scripts, labels, v_ids, q_ids)]
     out_handle = open('%s.jsonlines' % output_file, 'w')
     for sample in samples:
         out_handle.write(json.dumps(sample))

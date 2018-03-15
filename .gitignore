@@ -1,3 +1,6 @@
+*.jsonlines
+*.pkg
+*.csv
 logs/*
 *.filtered
 *.txt

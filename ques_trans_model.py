@@ -339,8 +339,11 @@ class CorefModel(object):
     coref_evaluator = metrics.CorefEvaluator()
 
     scores_list = []
+    eval_size = len(self.eval_data)
 
     for example_num, (tensorized_example, example) in enumerate(self.eval_data):
+      if example_num % 100 == 0:
+        print '%d / %d pairs evaluated' % (example_num, eval_size)
       ques_emb, trans_emb, label, is_training = tensorized_example
 
       feed_dict = {i:t for i,t in zip(self.input_tensors, tensorized_example)}
