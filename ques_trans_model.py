@@ -5,7 +5,7 @@ import json
 import threading
 import numpy as np
 import tensorflow as tf
-
+import pickle
 import util
 # import coref_ops
 # import conll
@@ -338,40 +338,14 @@ class CorefModel(object):
     coref_predictions = {}
     coref_evaluator = metrics.CorefEvaluator()
 
+    scores_list = []
+
     for example_num, (tensorized_example, example) in enumerate(self.eval_data):
       ques_emb, trans_emb, label, is_training = tensorized_example
 
       feed_dict = {i:t for i,t in zip(self.input_tensors, tensorized_example)}
       score = session.run(self.predictions, feed_dict=feed_dict)
 
-      self.evaluate_mentions(candidate_starts, candidate_ends, mention_starts, mention_ends, mention_scores, gold_starts, gold_ends, example, mention_evaluators)
-      predicted_antecedents = self.get_predicted_antecedents(antecedents, antecedent_scores)
-
-      coref_predictions[example["doc_key"]] = self.evaluate_coref(mention_starts, mention_ends, predicted_antecedents, example["clusters"], coref_evaluator)
-
-      if example_num % 10 == 0:
-        print "Evaluated {}/{} examples.".format(example_num + 1, len(self.eval_data))
-
-    summary_dict = {}
-    for k, evaluator in sorted(mention_evaluators.items(), key=operator.itemgetter(0)):
-      tags = ["{} @ {}".format(t, _k_to_tag(k)) for t in ("R", "P", "F")]
-      results_to_print = []
-      for t, v in zip(tags, evaluator.metrics()):
-        results_to_print.append("{:<10}: {:.2f}".format(t, v))
-        summary_dict[t] = v
-      print ", ".join(results_to_print)
-
-    conll_results = conll.evaluate_conll(self.config["conll_eval_path"], coref_predictions, official_stdout)
-    average_f1 = sum(results["f"] for results in conll_results.values()) / len(conll_results)
-    summary_dict["Average F1 (conll)"] = average_f1
-    print "Average F1 (conll): {:.2f}%".format(average_f1)
-
-    p,r,f = coref_evaluator.get_prf()
-    summary_dict["Average F1 (py)"] = f
-    print "Average F1 (py): {:.2f}%".format(f * 100)
-    summary_dict["Average precision (py)"] = p
-    print "Average precision (py): {:.2f}%".format(p * 100)
-    summary_dict["Average recall (py)"] = r
-    print "Average recall (py): {:.2f}%".format(r * 100)
-
-    return util.make_summary(summary_dict), average_f1
+      scores_list.append([example['q_id'], example['v_id'], score])
+    
+    pickle.dump([[], [], scores_list], open('scores.pkg', 'wb'))
