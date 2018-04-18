@@ -14,8 +14,8 @@ Run `./copy_exp.sh EXP_NAME ITER_NUM`.
 
 For example: `./copy_exp.sh best 10000`.
 
-Run `python test_single.py EXP_NAME`.
+Run `python test_single.py EXP_NAME`. This generates scores.pkg file.
 
 For example: `python test_single.py best`.
 
-To get final scores, run `python eval.py` or `python evaluate.py test`. Both works.
+To get final scores, run `python eval.py 0 (or 1)`. 0 for evaluating on video clips and 1 for entire video.
