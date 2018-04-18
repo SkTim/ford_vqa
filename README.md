@@ -19,3 +19,8 @@ Run `python test_single.py EXP_NAME`. This generates scores.pkg file.
 For example: `python test_single.py best`.
 
 To get final scores, run `python eval.py 0 (or 1)`. 0 for evaluating on video clips and 1 for entire video.
+
+## Format of scores.pkg
+Test scores can be loaded by `_, _, test_scores = pickle.load(open('scores.pkg'))`.
+
+test_score = [['q_id', 'v_id', score], ....]
