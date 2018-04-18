@@ -170,33 +170,61 @@ class CorefModel(object):
     trans_len_mask = tf.sequence_mask(trans_len, maxlen=trans_len)
     trans_len_mask = tf.reshape(trans_len_mask, [num_sentences * trans_len])
 
-    with tf.variable_scope("question_lstm"):
-      ques_outputs = self.encode_sentences(ques_emb, ques_len_lstm, ques_len_mask)
+    # with tf.variable_scope("question_lstm"):
+    #   ques_outputs = self.encode_sentences(ques_emb, ques_len_lstm, ques_len_mask)
+    #   ques_outputs = tf.nn.dropout(ques_outputs, self.dropout)
+
+    # with tf.variable_scope("transcript_lstm"):
+    #   trans_outputs = self.encode_sentences(trans_emb, trans_len_lstm, trans_len_mask)
+    #   trans_outputs = tf.nn.dropout(trans_outputs, self.dropout)
+
+    with tf.variable_scope("question_cnn5", reuse=tf.AUTO_REUSE):
+      ques_outputs = util.cnn(ques_emb, [5], 200)
+    with tf.variable_scope("question_cnn3", reuse=tf.AUTO_REUSE):
+      ques_outputs = util.cnn(ques_outputs, [3], 200)[0]
       ques_outputs = tf.nn.dropout(ques_outputs, self.dropout)
 
-    with tf.variable_scope("transcript_lstm"):
-      trans_outputs = self.encode_sentences(trans_emb, trans_len_lstm, trans_len_mask)
+    with tf.variable_scope("transcript_cnn5", reuse=tf.AUTO_REUSE):
+      trans_outputs = util.cnn(trans_emb, [5], 200)
+    with tf.variable_scope("transcript_cnn3", reuse=tf.AUTO_REUSE):
+      trans_outputs = util.cnn(trans_outputs, [3], 200)[0]
       trans_outputs = tf.nn.dropout(trans_outputs, self.dropout)
 
-    ques_lstm_emb = tf.gather(tf.squeeze(ques_outputs, 0), [ques_len - 1])
-    trans_lstm_emb = tf.squeeze(trans_outputs, 0)
+    ques_query = tf.reduce_mean(ques_outputs, 0, keepdims=True)
 
-    ques_tiled = tf.tile(ques_lstm_emb, [trans_len, 1])
+    # ques_lstm_emb = tf.gather(tf.squeeze(ques_outputs, 0), [ques_len - 1])
+    # trans_lstm_emb = tf.squeeze(trans_outputs, 0)
 
-    att_emb = tf.concat([ques_tiled, trans_lstm_emb], 1)
+    ques_tiled = tf.tile(ques_query, [trans_len, 1])
+
+    hist_att_emb = tf.concat([ques_tiled, trans_outputs], 1)
     with tf.variable_scope("context_att"):
-      att_logits = util.ffnn(att_emb, 1, 150, 1, self.dropout)
+      att_logits = util.ffnn(hist_att_emb, 1, 150, 1, self.dropout)
     
-    context_att = tf.nn.softmax(att_logits, dim=1)
-    hist_emb = tf.reduce_sum(context_att * trans_lstm_emb, 0, keepdims=True)
+    context_att = tf.nn.softmax(att_logits, dim=0)
+    hist_emb2 = tf.reduce_sum(context_att * trans_outputs, 0, keepdims=True)
 
-    pair_emb = tf.concat([ques_lstm_emb, hist_emb], 1)
+    hist_tiled = tf.tile(hist_emb2, [ques_len, 1])
+    ques_att_emb = tf.concat([hist_tiled, ques_outputs], 1)
+    with tf.variable_scope("question_att"):
+      att_logits = util.ffnn(ques_att_emb, 1, 150, 1, self.dropout)
+
+    question_att = tf.nn.softmax(att_logits, dim=0)
+    ques_emb2 = tf.reduce_sum(question_att * ques_outputs, 0, keepdims=True)
+
+    pair_emb = tf.concat([ques_emb2, hist_emb2], 1)
 
     logits = util.ffnn(pair_emb, 2, 150, 1, self.dropout)
 
-    score = tf.reshape(tf.nn.sigmoid(logits), [])
+    score = tf.nn.sigmoid(logits)
+    score = tf.reduce_sum(score)
+    label = tf.reduce_sum(label)
+    label = tf.cast(label, tf.float32)
+    self.label = label
+    self.score = score
+    loss = tf.reduce_sum((label - score) * (label - score))
 
-    loss = tf.cond(tf.cast(tf.reshape(label, []), tf.bool), lambda: 1 - score, lambda: score)
+    # loss = tf.cond(tf.cast(tf.reshape(label, []), tf.bool), lambda: 1 - score, lambda: score)
     return score, loss
 
   def softmax_loss(self, antecedent_scores, antecedent_labels):

@@ -99,11 +99,11 @@ def cnn(inputs, filter_sizes, num_filters):
     with tf.variable_scope("conv_{}".format(i)):
       w = tf.get_variable("w", [filter_size, input_size, num_filters])
       b = tf.get_variable("b", [num_filters])
-    conv = tf.nn.conv1d(inputs, w, stride=1, padding="VALID") # [num_words, num_chars - filter_size, num_filters]
+    conv = tf.nn.conv1d(inputs, w, stride=1, padding="SAME") # [num_words, num_chars - filter_size, num_filters]
     h = tf.nn.relu(tf.nn.bias_add(conv, b)) # [num_words, num_chars - filter_size, num_filters]
-    pooled = tf.reduce_max(h, 1) # [num_words, num_filters]
-    outputs.append(pooled)
-  return tf.concat(outputs, 1) # [num_words, num_filters * len(filter_sizes)]
+    # pooled = tf.reduce_max(h, 1) # [num_words, num_filters]
+    outputs.append(h)
+  return tf.concat(outputs, 2) # [num_words, num_filters * len(filter_sizes)]
 
 def normalize(v):
   norm = np.linalg.norm(v)

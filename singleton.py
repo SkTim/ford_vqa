@@ -49,7 +49,7 @@ if __name__ == "__main__":
     accumulated_loss = 0.0
     initial_time = time.time()
     while not sv.should_stop():
-      tf_loss, tf_global_step, _ = session.run([model.loss, model.global_step, model.train_op])
+      tf_loss, score, label, tf_global_step, _ = session.run([model.loss, model.score, model.label, model.global_step, model.train_op])
       accumulated_loss += tf_loss
 
       if tf_global_step % report_frequency == 0:
@@ -57,7 +57,7 @@ if __name__ == "__main__":
         steps_per_second = tf_global_step / total_time
 
         average_loss = accumulated_loss / report_frequency
-        print "[{}] loss={:.2f}, steps/s={:.2f}".format(tf_global_step, average_loss, steps_per_second)
+        print "[{}] score={:.2f} label={} loss={}, steps/s={:.2f}".format(tf_global_step, score, label, average_loss, steps_per_second)
         writer.add_summary(util.make_summary({"loss": average_loss}), tf_global_step)
         accumulated_loss = 0.0
 

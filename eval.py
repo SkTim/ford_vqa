@@ -1,11 +1,17 @@
+import sys
 import json
 import pickle
 
 def count_topn(qv_map, sort_map, n):
     match = 0.0
     for q, v in sort_map.items():
-        v = set(v[:n])
-        if qv_map[q] in v:
+        if sys.argv[1]:
+            label = qv_map[q][:-2]
+            v_list = set([x[:-2] for x in v[:n]])
+        else:
+            label = qv_map[q]
+            v_list = set(v[:n])
+        if label in v_list:
             match += 1
     return match
 
