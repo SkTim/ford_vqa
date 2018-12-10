@@ -21,12 +21,13 @@ if __name__ == "__main__":
   report_frequency = config["report_frequency"]
 
   config["log_dir"] = util.mkdirs(os.path.join(config["log_root"], name))
+  config["train_path"] = "train_%s.jsonlines" % sys.argv[2]
   util.print_config(config)
 
-  if "GPU" in os.environ:
-    util.set_gpus(int(os.environ["GPU"]))
-  else:
-    util.set_gpus()
+  # if "GPU" in os.environ:
+  #   util.set_gpus(int(os.environ["GPU"]))
+  # else:
+  #   util.set_gpus()
 
   model = cm.CorefModel(config)
   saver = tf.train.Saver()
@@ -49,7 +50,7 @@ if __name__ == "__main__":
     accumulated_loss = 0.0
     initial_time = time.time()
     while not sv.should_stop():
-      tf_loss, score, label, tf_global_step, _ = session.run([model.loss, model.score, model.label, model.global_step, model.train_op])
+      tf_loss, score, tf_global_step, _ = session.run([model.loss, model.score, model.global_step, model.train_op])
       accumulated_loss += tf_loss
 
       if tf_global_step % report_frequency == 0:
@@ -57,7 +58,10 @@ if __name__ == "__main__":
         steps_per_second = tf_global_step / total_time
 
         average_loss = accumulated_loss / report_frequency
-        print "[{}] score={:.2f} label={} loss={}, steps/s={:.2f}".format(tf_global_step, score, label, average_loss, steps_per_second)
+        print("*************************** scores ***************************")
+        np.set_printoptions(precision=2)
+        print(score)
+        print("[{}] loss={}, steps/s={:.2f}".format(tf_global_step, average_loss, steps_per_second))
         writer.add_summary(util.make_summary({"loss": average_loss}), tf_global_step)
         accumulated_loss = 0.0
 

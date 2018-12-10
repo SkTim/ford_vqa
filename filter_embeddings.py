@@ -20,15 +20,22 @@ if __name__ == "__main__":
 
     total_lines = 0
     kept_lines = 0
+    n_words = len(words_to_keep)
     out_filename = "{}.filtered".format(sys.argv[1])
-    with open(sys.argv[1]) as in_file:
-        with open(out_filename, "w") as out_file:
-            for line in in_file.readlines():
-                total_lines += 1
-                word = line.split()[0]
-                if word in words_to_keep:
-                    kept_lines += 1
-                    out_file.write(line)
+    with open(out_filename, "w") as out_file:
+        for i, word in enumerate(list(words_to_keep)):
+            vec = ['0.0'] * n_words
+            vec[i] = '1.0'
+            vec = [word.encode('utf-8')] + vec
+            out_file.write('%s\n' % ' '.join(vec))
+    # with open(sys.argv[1]) as in_file:
+    #     with open(out_filename, "w") as out_file:
+    #         for line in in_file.readlines():
+    #             total_lines += 1
+    #             word = line.split()[0]
+    #             if word in words_to_keep:
+    #                 kept_lines += 1
+    #                 out_file.write(line)
 
     print "Kept {} out of {} lines.".format(kept_lines, total_lines)
     print "Wrote result to {}.".format(out_filename)

@@ -27,6 +27,8 @@ class CorefModel(object):
     input_props.append((tf.float32, [None, None, self.embedding_size])) # Question embeddings.
     input_props.append((tf.float32, [None, None, self.embedding_size])) # Transcript embeddings.
     input_props.append((tf.int32, [None])) # Labels.
+    input_props.append((tf.int32, [None])) # q_len.
+    input_props.append((tf.int32, [None])) # s_len.
     input_props.append((tf.bool, [])) # Is training.
 
     self.queue_input_tensors = [tf.placeholder(dtype, shape) for dtype, shape in input_props]
@@ -55,15 +57,22 @@ class CorefModel(object):
         train_examples = [json.loads(jsonline) for jsonline in f.readlines()]
       def _enqueue_loop():
         while True:
+          print('*' * 89)
           random.shuffle(train_examples)
-          for example in train_examples:
-            tensorized_example = self.tensorize_example(example, is_training=True)
-            feed_dict = dict(zip(self.queue_input_tensors, tensorized_example))
+          for i in range(0, len(train_examples), 16):
+            examples = train_examples[i:i + 16]
+            tensorized_example = [self.tensorize_example(x, True, 40, 200) for x in examples]
+            ques_emb = np.concatenate([x[0] for x in tensorized_example], axis=0)
+            trans_emb = np.concatenate([x[1] for x in tensorized_example], axis=0)
+            labels = np.array([x[2] for x in tensorized_example])
+            q_len = np.array([x[3] for x in tensorized_example])
+            s_len = np.array([x[4] for x in tensorized_example])
+            feed_dict = dict(zip(self.queue_input_tensors, [ques_emb, trans_emb, labels, q_len, s_len, True]))
             session.run(self.enqueue_op, feed_dict=feed_dict)
       enqueue_thread = threading.Thread(target=_enqueue_loop)
       enqueue_thread.daemon = True
       enqueue_thread.start()
-
+  
   def tensorize_mentions(self, mentions):
     if len(mentions) > 0:
       starts, ends = zip(*mentions)
@@ -71,34 +80,21 @@ class CorefModel(object):
       starts, ends = [], []
     return np.array(starts), np.array(ends)
 
-  def tensorize_example(self, example, is_training, oov_counts=None):
-    label = np.array([example['label']])
+  def tensorize_example(self, example, is_training, mlq, mlt, oov_counts=None):
+    label = example['label']
+    q_len = example['q_len']
+    s_len = example['s_len']
     question = example['question'].split(' ')
     trans = example['script'].split(' ')
-
-    # clusters = example["clusters"]
-
-    # gold_mentions = sorted(tuple(m) for m in util.flatten(clusters))
-    # gold_mention_map = {m:i for i,m in enumerate(gold_mentions)}
-    # cluster_ids = np.zeros(len(gold_mentions))
-    # for cluster_id, cluster in enumerate(clusters):
-    #   for mention in cluster:
-    #     cluster_ids[gold_mention_map[tuple(mention)]] = cluster_id
-
-    # sentences = example["sentences"]
-    # num_words = sum(len(s) for s in sentences)
-    # speakers = util.flatten(example["speakers"])
-
-    # assert num_words == len(speakers)
-
-    # max_sentence_length = max(len(s) for s in sentences)
-    # max_word_length = max(max(max(len(w) for w in s) for s in sentences), max(self.config["filter_widths"]))
-    ques_emb = np.zeros([1, len(question), self.embedding_size])
-    trans_emb = np.zeros([1, len(trans), self.embedding_size])
+    
+    ques_emb = np.zeros([1, mlq, self.embedding_size])
+    trans_emb = np.zeros([1, mlt, self.embedding_size])
     # char_index = np.zeros([len(sentences), max_sentence_length, max_word_length])
     ques_len = np.array([len(question)])
     trans_len = np.array([len(trans)])
     for j, word in enumerate(question):
+      if j > mlq - 1:
+        break
       current_dim = 0
       for k, (d, (s,l)) in enumerate(zip(self.embedding_dicts, self.embedding_info)):
         if l:
@@ -112,6 +108,8 @@ class CorefModel(object):
       # char_index[i, j, :len(word)] = [self.char_dict[c] for c in word]
     
     for j, word in enumerate(trans):
+      if j > mlt - 1:
+        break
       current_dim = 0
       for k, (d, (s,l)) in enumerate(zip(self.embedding_dicts, self.embedding_info)):
         if l:
@@ -122,34 +120,23 @@ class CorefModel(object):
           oov_counts[k] += 1
         trans_emb[0, j, current_dim:current_dim + s] = util.normalize(d[current_word])
         current_dim += s
-      # char_index[i, j, :len(word)] = [self.char_dict[c] for c in word]
-
-    # speaker_dict = { s:i for i,s in enumerate(set(speakers)) }
-    # speaker_ids = np.array([speaker_dict[s] for s in speakers])
-
-    # doc_key = example["doc_key"]
-    # genre = self.genres[doc_key[:2]]
-
-    # gold_starts, gold_ends = self.tensorize_mentions(gold_mentions)
-
-    # if is_training and len(sentences) > self.config["max_training_sentences"]:
-    #   return self.truncate_example(word_emb, char_index, text_len, speaker_ids, genre, is_training, gold_starts, gold_ends, cluster_ids)
-    # else:
-    return ques_emb, trans_emb, label, is_training # char_index, text_len, speaker_ids, genre, is_training, gold_starts, gold_ends, cluster_ids
+    return ques_emb, trans_emb, label, q_len, s_len, is_training # char_index, text_len, speaker_ids, genre, is_training, gold_starts, gold_ends, cluster_ids
 
 
-  def get_predictions_and_loss(self, ques_emb, trans_emb, label, is_training):
+  def get_predictions_and_loss(self, ques_emb, trans_emb, label, ques_len, trans_len, is_training):
     self.dropout = 1 - (tf.to_float(is_training) * self.config["dropout_rate"])
     self.lexical_dropout = 1 - (tf.to_float(is_training) * self.config["lexical_dropout_rate"])
 
-    num_sentences = tf.shape(ques_emb)[0]
+    num_questions = tf.shape(ques_emb)[0]
+    num_sentences = tf.shape(trans_emb)[0]
+    # num_sentences = tf.shape(ques_emb)[0]
     # max_sentence_length = tf.shape(ques_emb)[1]
 
-    ques_len = tf.shape(ques_emb)[1]
-    trans_len = tf.shape(trans_emb)[1]
+    # ques_len = tf.shape(ques_emb)[1]
+    # trans_len = tf.shape(trans_emb)[1]
 
-    ques_len_lstm = tf.reshape(ques_len, [1])
-    trans_len_lstm = tf.reshape(trans_len, [1])
+    # ques_len_lstm = tf.reshape(ques_len, [1])
+    # trans_len_lstm = tf.reshape(trans_len, [1])
 
     # text_emb_list = [word_emb]
 
@@ -161,71 +148,107 @@ class CorefModel(object):
     #   text_emb_list.append(aggregated_char_emb)
 
     # text_emb = tf.concat(text_emb_list, 2)
+    # ques_emb = tf.matmul(ques_emb, tf.zeros([100, 5]))
+    with tf.variable_scope('ques_emb'):
+      ques_emb = util.projection(ques_emb, 600)
+      # ques_emb = tf.tanh(ques_emb)
+    with tf.variable_scope('trans_emb'):
+      trans_emb = util.projection(trans_emb, 600)
+      # trans_emb = tf.tanh(trans_emb)
+    
     ques_emb = tf.nn.dropout(ques_emb, self.lexical_dropout)
     trans_emb = tf.nn.dropout(trans_emb, self.lexical_dropout)
 
-    ques_len_mask = tf.sequence_mask(ques_len, maxlen=ques_len)
-    ques_len_mask = tf.reshape(ques_len_mask, [num_sentences * ques_len])
+    ques_len_mask = tf.sequence_mask(ques_len, maxlen=40, dtype=tf.float32)
+    ques_len_mask = tf.reshape(ques_len_mask, [num_questions, -1, 1])
 
-    trans_len_mask = tf.sequence_mask(trans_len, maxlen=trans_len)
-    trans_len_mask = tf.reshape(trans_len_mask, [num_sentences * trans_len])
+    trans_len_mask = tf.sequence_mask(trans_len, maxlen=200, dtype=tf.float32)
+    trans_len_mask = tf.reshape(trans_len_mask, [num_sentences, -1, 1])
 
-    # with tf.variable_scope("question_lstm"):
-    #   ques_outputs = self.encode_sentences(ques_emb, ques_len_lstm, ques_len_mask)
-    #   ques_outputs = tf.nn.dropout(ques_outputs, self.dropout)
-
-    # with tf.variable_scope("transcript_lstm"):
-    #   trans_outputs = self.encode_sentences(trans_emb, trans_len_lstm, trans_len_mask)
-    #   trans_outputs = tf.nn.dropout(trans_outputs, self.dropout)
-
-    with tf.variable_scope("question_cnn5", reuse=tf.AUTO_REUSE):
-      ques_outputs = util.cnn(ques_emb, [5], 200)
-    with tf.variable_scope("question_cnn3", reuse=tf.AUTO_REUSE):
-      ques_outputs = util.cnn(ques_outputs, [3], 200)[0]
+    '''
+    with tf.variable_scope("question_lstm"):
+      ques_outputs = self.encode_sentences(ques_emb, ques_len_lstm, ques_len_mask)
       ques_outputs = tf.nn.dropout(ques_outputs, self.dropout)
 
-    with tf.variable_scope("transcript_cnn5", reuse=tf.AUTO_REUSE):
-      trans_outputs = util.cnn(trans_emb, [5], 200)
-    with tf.variable_scope("transcript_cnn3", reuse=tf.AUTO_REUSE):
-      trans_outputs = util.cnn(trans_outputs, [3], 200)[0]
+    with tf.variable_scope("transcript_lstm"):
+      trans_outputs = self.encode_sentences(trans_emb, trans_len_lstm, trans_len_mask)
       trans_outputs = tf.nn.dropout(trans_outputs, self.dropout)
+    '''
+    # '''
+    # with tf.variable_scope("question_cnn5"):
+    ques_outputs = tf.layers.conv1d(ques_emb, 600, 5, padding="same", activation=tf.nn.tanh)
+    ques_outputs = tf.nn.dropout(ques_outputs, self.dropout)
+    
+    trans_outputs = tf.layers.conv1d(trans_emb, 600, 5, padding="same", activation=tf.nn.tanh)
+    trans_outputs = tf.nn.dropout(trans_outputs, self.dropout)
+    
+    # ques_outputs = tf.matmul(ques_outputs, tf.zeros([100, 5]))
+    
+    # with tf.variable_scope("question_cnn3"):
+    # ques_outputs = tf.layers.conv1d(ques_outputs, 600, 3, padding="same", activation=tf.nn.relu)
+    # ques_outputs = tf.nn.dropout(ques_outputs, self.dropout)[0]
+    
+    # ques_outputs = tf.matmul(ques_outputs, tf.zeros([100, 5]))
 
-    ques_query = tf.reduce_mean(ques_outputs, 0, keepdims=True)
+    # ques_outputs = tf.matmul(ques_outputs, tf.zeros([100, 5]))
+    with tf.variable_scope("qh_score"):
+      head_scores = util.projection(ques_outputs, 1) + tf.log(ques_len_mask)
+      head_att = tf.nn.softmax(head_scores, dim=1)
+      ques_emb2 = tf.reduce_sum(head_att * ques_outputs, 1)
+      # ques_query = tf.reduce_sum(head_att * ques_outputs, 1, keepdims=True)
+    
+    with tf.variable_scope("th_score"):
+      head_scores = util.projection(trans_outputs, 1) + tf.log(trans_len_mask)
+      head_att = tf.nn.softmax(head_scores, dim=1)
+      trans_emb2 = tf.reduce_sum(head_att * trans_outputs, 1)
+      # trans_query = tf.reduce_sum(head_att * trans_outputs, 1, keepdims=True)
 
     # ques_lstm_emb = tf.gather(tf.squeeze(ques_outputs, 0), [ques_len - 1])
     # trans_lstm_emb = tf.squeeze(trans_outputs, 0)
 
-    ques_tiled = tf.tile(ques_query, [trans_len, 1])
+    '''
+    ques_tiled = tf.tile(ques_query, [1, 200, 1])
 
-    hist_att_emb = tf.concat([ques_tiled, trans_outputs], 1)
+    hist_att_emb = tf.concat([ques_tiled, trans_outputs], 2)
     with tf.variable_scope("context_att"):
-      att_logits = util.ffnn(hist_att_emb, 1, 150, 1, self.dropout)
+      att_logits = util.projection(hist_att_emb, 1) + tf.log(trans_len_mask)
     
-    context_att = tf.nn.softmax(att_logits, dim=0)
-    hist_emb2 = tf.reduce_sum(context_att * trans_outputs, 0, keepdims=True)
+    context_att = tf.nn.softmax(att_logits, dim=1)
+    hist_emb2 = tf.reduce_sum(context_att * trans_outputs, 1, keepdims=True)
 
-    hist_tiled = tf.tile(hist_emb2, [ques_len, 1])
-    ques_att_emb = tf.concat([hist_tiled, ques_outputs], 1)
+    hist_tiled = tf.tile(hist_emb2, [1, 40, 1])
+    ques_att_emb = tf.concat([hist_tiled, ques_outputs], 2)
     with tf.variable_scope("question_att"):
-      att_logits = util.ffnn(ques_att_emb, 1, 150, 1, self.dropout)
+      att_logits = util.projection(ques_att_emb, 1) + tf.log(ques_len_mask)
 
-    question_att = tf.nn.softmax(att_logits, dim=0)
-    ques_emb2 = tf.reduce_sum(question_att * ques_outputs, 0, keepdims=True)
+    question_att = tf.nn.softmax(att_logits, dim=1)
+    ques_emb2 = tf.reduce_sum(question_att * ques_outputs, 1)
 
-    pair_emb = tf.concat([ques_emb2, hist_emb2], 1)
+    # pair_emb = tf.concat([ques_emb2, hist_emb2, ques_emb2 * hist_emb2], 1)
 
-    logits = util.ffnn(pair_emb, 2, 150, 1, self.dropout)
+    # logits = util.ffnn(pair_emb, 2, 150, 1, self.dropout)
+    trans_emb2 = tf.squeeze(hist_emb2, 1)
+    '''
+    
+    logits = tf.matmul(ques_emb2, tf.transpose(trans_emb2, [1, 0]))
+    label = tf.eye(num_sentences)
+    # loss = tf.nn.softmax_cross_entropy_with_logits(labels=label, logits=logits)
+    loss = tf.cond(is_training, lambda: tf.nn.softmax_cross_entropy_with_logits(labels=label, logits=logits), lambda: 0.)
 
-    score = tf.nn.sigmoid(logits)
-    score = tf.reduce_sum(score)
-    label = tf.reduce_sum(label)
-    label = tf.cast(label, tf.float32)
-    self.label = label
-    self.score = score
-    loss = tf.reduce_sum((label - score) * (label - score))
+    # logits = tf.reshape(tf.reduce_sum(ques_emb2 * hist_emb2), [])
+    
+    # score = tf.nn.sigmoid(logits)
+    # score = tf.reduce_sum(score)
+    # label = tf.reduce_sum(label)
+    # label = tf.cast(label, tf.float32)
+    # self.label = label
+    # self.score = score
+    # loss = tf.reduce_sum((label - score) * (label - score))
 
     # loss = tf.cond(tf.cast(tf.reshape(label, []), tf.bool), lambda: 1 - score, lambda: score)
-    return score, loss
+    self.score = logits
+    loss = tf.reduce_sum(loss)
+    return logits, loss
 
   def softmax_loss(self, antecedent_scores, antecedent_labels):
     gold_scores = antecedent_scores + tf.log(tf.to_float(antecedent_labels)) # [num_mentions, max_ant + 1]
@@ -354,15 +377,83 @@ class CorefModel(object):
     if self.eval_data is None:
       oov_counts = [0 for _ in self.embedding_dicts]
       with open(self.config["eval_path"]) as f:
-        self.eval_data = map(lambda example: (self.tensorize_example(example, is_training=False, oov_counts=oov_counts), example), (json.loads(jsonline) for jsonline in f.readlines()))
-      # num_words = sum(tensorized_example[2].sum() for tensorized_example, _ in self.eval_data)
-      # for emb, c in zip(self.config["embeddings"], oov_counts):
-      #   print("OOV rate for {}: {:.2f}%".format(emb["path"], (100.0 * c) / num_words))
-      # print("Loaded {} eval examples.".format(len(self.eval_data)))
+        test_examples = [json.loads(jsonline) for jsonline in f.readlines()]
+      return test_examples
 
-  def evaluate(self, session, official_stdout=False):
-    self.load_eval_data()
+  def load_test_set(self):
+    with open(r'test_set.jsonlines') as f:
+      test_set = [json.loads(jsonline) for jsonline in f.readlines()]
+    return test_set
 
+  def eval_enqueue_thread(self, session, official_stdout=False):
+    oov_counts = [0 for _ in self.embedding_dicts]
+    test_samples = self.load_eval_data()
+    test_set = self.load_test_set()
+    num_samples = len(test_samples)
+    num_videos = len(test_set)
+    def _enqueue_loop():
+      # q, _, _, q_len, _, _ = self.tensorize_example(test_samples[i], False, 40, 200, oov_counts=oov_counts)
+      ques = [self.tensorize_example(test_samples[j], False, 40, 200, oov_counts=oov_counts) for j in range(num_samples)]
+      ques = [(x[0], x[3]) for x in ques]
+      
+      trans = [self.tensorize_example(test_set[j], False, 40, 200, oov_counts=oov_counts) for j in range(num_videos)]
+      trans = [(x[1], x[4]) for x in trans]
+      
+      labels = np.zeros(num_videos)
+      q_len = np.array([x[1] for x in ques])
+      s_len = np.array([x[1] for x in trans])
+      q = np.concatenate([x[0] for x in ques], axis=0)
+      # q = np.concatenate([q for i in range(num_videos)], axis=0)
+      t = np.concatenate([x[0] for x in trans], axis=0)
+      print(q.shape)
+      print(t.shape)
+      # print(q_len.shape)
+      # print(s_len.shape)
+      feed_dict = dict(zip(self.queue_input_tensors, [q, t, labels, q_len, s_len, False]))
+      session.run(self.enqueue_op, feed_dict=feed_dict)
+    enqueue_thread = threading.Thread(target=_enqueue_loop)
+    enqueue_thread.daemon = True
+    enqueue_thread.start()
+  
+  def eval_enqueue_thread2(self, session, official_stdout=False):
+    oov_counts = [0 for _ in self.embedding_dicts]
+    test_samples = self.load_eval_data()
+    test_set = self.load_test_set()
+    num_samples = len(test_samples)
+    num_videos = len(test_set)
+    def _enqueue_loop():
+      for i in range(num_samples):
+        q, _, _, q_len, _, _ = self.tensorize_example(test_samples[i], False, 40, 200, oov_counts=oov_counts)
+        trans = [self.tensorize_example(test_set[j], False, 40, 200, oov_counts=oov_counts) for j in range(num_videos)]
+        trans = [(x[1], x[4]) for x in trans]
+        labels = np.zeros(num_videos)
+        q_len = np.array([q_len])
+        # q_len = np.array([q_len] * num_videos)
+        s_len = np.array([x[1] for x in trans])
+        q = np.concatenate([q,], axis=0)
+        # q = np.concatenate([q for i in range(num_videos)], axis=0)
+        t = np.concatenate([x[0] for x in trans], axis=0)
+        # print(q.shape)
+        # print(t.shape)
+        # print(q_len.shape)
+        # print(s_len.shape)
+        feed_dict = dict(zip(self.queue_input_tensors, [q, t, labels, q_len, s_len, False]))
+        session.run(self.enqueue_op, feed_dict=feed_dict)
+    enqueue_thread = threading.Thread(target=_enqueue_loop)
+    enqueue_thread.daemon = True
+    enqueue_thread.start()
+
+  def evaluate_raw(self, session, official_stdout=False):
+    ques_emb, trans_emb, labels, q_len, s_len = self.load_eval_data()
+    scores_list = []
+    for i, t in enumerate(trans_emb):
+      feed_dict = dict(zip(self.queue_input_tensors, [ques_emb, t, labels, q_len, s_len, True]))
+      score = session.run(self.predictions, feed_dict=feed_dict)
+      scores_list.append(score)
+    scores_list = np.concatenate(scores_list, axis=1)
+    pickle.dump([[], [], scores_list], open('scores.pkg', 'wb'))
+
+    '''
     coref_predictions = {}
     coref_evaluator = metrics.CorefEvaluator()
 
@@ -371,7 +462,7 @@ class CorefModel(object):
 
     for example_num, (tensorized_example, example) in enumerate(self.eval_data):
       if example_num % 100 == 0:
-        print '%d / %d pairs evaluated' % (example_num, eval_size)
+        print('%d / %d pairs evaluated' % (example_num, eval_size))
       ques_emb, trans_emb, label, is_training = tensorized_example
 
       feed_dict = {i:t for i,t in zip(self.input_tensors, tensorized_example)}
@@ -380,3 +471,4 @@ class CorefModel(object):
       scores_list.append([example['q_id'], example['v_id'], score])
     
     pickle.dump([[], [], scores_list], open('scores.pkg', 'wb'))
+    '''

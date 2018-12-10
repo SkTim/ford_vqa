@@ -69,6 +69,9 @@ def negative_sampling(v_ids, q_ids, num_samples):
                 n += 1
     return new_v, new_q, labels
 
+def get_length(s):
+    return len(s.split(' '))
+
 def process_data(input_file, output_file, num_samples):
     v_ids, q_ids, scripts, questions = read_csv(input_file)
     scripts = [process_script(x) for x in scripts]
@@ -78,8 +81,8 @@ def process_data(input_file, output_file, num_samples):
     v_ids, q_ids, labels = negative_sampling(v_ids, q_ids, num_samples)
     scripts = [v_dict[x] for x in v_ids]
     questions = [q_dict[x] for x in q_ids]
-    samples = [{'question': x, 'script': y, 'label': z} for x, y, z in zip(questions, scripts, labels)]
-    out_handle = open('%s.jsonlines' % output_file, 'w')
+    samples = [{'question': x, 'script': y, 'label': z, 'q_len': get_length(x), 's_len': get_length(y), 'v_id': v, 'q_id': q} for x, y, z, v, q in zip(questions, scripts, labels, v_ids, q_ids)]
+    out_handle = open('%s_%s.jsonlines' % (output_file, sys.argv[2]), 'w')
     for sample in samples:
         out_handle.write(json.dumps(sample))
         out_handle.write('\n')
@@ -132,7 +135,7 @@ def process_test(input_file, output_file, num_samples):
     scripts = [v_dict[x] for x in v_ids]
     questions = [q_dict[x] for x in q_ids]
     samples = [{'question': x, 'script': y, 'label': z, 'v_id': v_id, 'q_id': q_id} for x, y, z, v_id, q_id in zip(questions, scripts, labels, v_ids, q_ids)]
-    out_handle = open('%s.jsonlines' % output_file, 'w')
+    out_handle = open('%s_%s.jsonlines' % (output_file, sys.argv[2]), 'w')
     for sample in samples:
         out_handle.write(json.dumps(sample))
         out_handle.write('\n')
@@ -140,6 +143,6 @@ def process_test(input_file, output_file, num_samples):
 
 if __name__ == '__main__':
     if sys.argv[1] == 'train' or sys.argv[1] == 'dev':
-        process_data('data/%s.csv' % sys.argv[1], sys.argv[1], 1)
+        process_data('data/%s_%s.csv' % (sys.argv[1], sys.argv[2]), sys.argv[1], 0)
     else:
-        process_test('data/%s.csv' % sys.argv[1], sys.argv[1], 1)
+        process_data('data/%s_%s.csv' % (sys.argv[1], sys.argv[2]), sys.argv[1], 0)
